@@ -15,10 +15,17 @@ type CustomerView = {
     label: GameObjects.Text;
 };
 
+type ShelfView = {
+    container: GameObjects.Container;
+    rect: GameObjects.Rectangle;
+    label: GameObjects.Text;
+};
+
 export class ShopScene extends Scene {
     private sim!: SimGame;
     private hudText!: GameObjects.Text;
     private customerViews = new Map<string, CustomerView>();
+    private shelfViews = new Map<number, ShelfView>();
     private snapshotAccumulatorMs = 0;
 
     constructor() {
@@ -107,6 +114,7 @@ export class ShopScene extends Scene {
         const snapshot = this.sim.snapshot();
         EventBus.emit('sim:snapshot', snapshot);
         this.renderHud(snapshot);
+        this.syncShelves(snapshot);
         this.syncCustomers(snapshot);
     }
 
@@ -160,9 +168,11 @@ export class ShopScene extends Scene {
                     new Geom.Rectangle(-65, -30, 130, 60),
                     Geom.Rectangle.Contains,
                 );
+                container.setDataEnabled();
                 container.on('pointerdown', () => {
                     EventBus.emit('sim:customerClicked', c.id);
-                    if (c.status === 'waitingBattle') {
+                    const status = container.getData('status') as string | undefined;
+                    if (status === 'waitingBattle') {
                         EventBus.emit('sim:battlePrompt', c.id);
                     }
                 });
@@ -176,6 +186,7 @@ export class ShopScene extends Scene {
             const isBattle = c.status === 'waitingBattle';
             view.rect.setFillStyle(isBattle ? 0x3b1f2a : 0x1f2a44, 1);
             view.rect.setStrokeStyle(2, isBattle ? 0xe58a8a : 0x6071a8);
+            view.container.setData('status', c.status);
 
             view.label.setText(`${c.name} (T${c.tier})\n${c.intent} — ${c.status}`);
         });
@@ -186,5 +197,42 @@ export class ShopScene extends Scene {
             view.container.destroy(true);
             this.customerViews.delete(id);
         }
+    }
+
+    private syncShelves(snapshot: SimSnapshot) {
+        // Layout
+        const startX = 180;
+        const y = 140;
+        const slotW = 200;
+        const slotH = 52;
+
+        snapshot.shop.shelves.slots.forEach((slot, idx) => {
+            const x = startX + idx * slotW;
+            let view = this.shelfViews.get(idx);
+            if (!view) {
+                const rect = this.add
+                    .rectangle(0, 0, 180, slotH, 0x0f172a)
+                    .setStrokeStyle(2, 0x334155);
+                const label = this.add
+                    .text(0, 0, '', {
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        color: '#ffffff',
+                        align: 'center',
+                    })
+                    .setOrigin(0.5);
+                const container = this.add.container(x, y, [rect, label]).setSize(180, slotH);
+                view = { container, rect, label };
+                this.shelfViews.set(idx, view);
+            }
+
+            view.container.setPosition(x, y);
+            const isEmpty = !slot.skuId || slot.quantity <= 0;
+            view.rect.setFillStyle(isEmpty ? 0x0f172a : 0x12304b, 1);
+            view.rect.setStrokeStyle(2, isEmpty ? 0x334155 : 0x60a5fa);
+
+            const sku = slot.skuId ?? 'empty';
+            view.label.setText(`Shelf ${idx + 1}\n${sku} ${slot.quantity}/${slot.capacity}`);
+        });
     }
 }

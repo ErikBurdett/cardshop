@@ -1,3 +1,5 @@
+import type { ShopState } from './shop';
+
 export type GamePhase = 'day' | 'night';
 
 export type SimEvent =
@@ -18,8 +20,17 @@ export type SimEvent =
     | {
           type: 'saleCompleted';
           customerId: string;
+          skuId: string;
           value: number;
           xp: number;
+      }
+    | {
+          type: 'customerReadyToBuy';
+          customerId: string;
+      }
+    | {
+          type: 'challengeExpired';
+          customerId: string;
       }
     | {
           type: 'battleResolved';
@@ -78,6 +89,7 @@ export type Customer = {
     intent: CustomerIntent;
     status: CustomerStatus;
     timeToDecisionSeconds: number;
+    challengeExpiresInSeconds?: number;
 };
 
 export type CustomersState = {
@@ -93,6 +105,7 @@ export type GameState = {
     upgrades: UpgradesState;
     skills: SkillsState;
     economy: EconomyState;
+    shop: ShopState;
     deck: DeckState;
     customers: CustomersState;
     rngSeed: number;
@@ -111,12 +124,32 @@ export type SimSnapshot = {
     xpToNext: number;
     skillPoints: number;
     unlockedCardTier: CardTier;
-    customers: Array<Pick<Customer, 'id' | 'name' | 'tier' | 'intent' | 'status'>>;
+    customers: Array<
+        Pick<Customer, 'id' | 'name' | 'tier' | 'intent' | 'status'> & {
+            challengeExpiresInSeconds?: number;
+        }
+    >;
+    shop: {
+        backroom: Record<string, number>;
+        shelves: {
+            slots: Array<{
+                skuId: string | null;
+                quantity: number;
+                capacity: number;
+            }>;
+        };
+    };
     deck: DeckState;
 };
 
 export type SimSaveV1 = {
     schemaVersion: 1;
+    savedAtIso: string;
+    state: GameState;
+};
+
+export type SimSaveV2 = {
+    schemaVersion: 2;
     savedAtIso: string;
     state: GameState;
 };

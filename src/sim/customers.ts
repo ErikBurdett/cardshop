@@ -113,7 +113,15 @@ export function tickCustomers(
     const nextCustomers: Customer[] = [];
     for (const c of customers) {
         if (c.status === 'waitingBattle') {
-            nextCustomers.push(c);
+            const remaining =
+                (c.challengeExpiresInSeconds ?? config.customer.challengeTimeoutSeconds) -
+                dtSimSeconds;
+            if (remaining > 0) {
+                nextCustomers.push({ ...c, challengeExpiresInSeconds: remaining });
+            } else {
+                events.push({ type: 'challengeExpired', customerId: c.id });
+                events.push({ type: 'customerLeft', customerId: c.id });
+            }
             continue;
         }
 
@@ -130,25 +138,18 @@ export function tickCustomers(
                     ...c,
                     status: 'waitingBattle',
                     timeToDecisionSeconds: 0,
+                    challengeExpiresInSeconds: config.customer.challengeTimeoutSeconds,
                 });
                 continue;
             }
 
-            // Buying completes immediately in MVP.
-            const { value: value, seed: s1 } = randIntInclusive(
-                s,
-                config.customer.saleValueMin,
-                config.customer.saleValueMax,
-            );
-            s = s1;
-
-            events.push({
-                type: 'saleCompleted',
-                customerId: c.id,
-                value,
-                xp: config.customer.xpPerSale,
+            // Customer is ready to buy; actual sale resolution happens in the shop layer.
+            nextCustomers.push({
+                ...c,
+                status: 'readyToBuy',
+                timeToDecisionSeconds: 0,
             });
-            events.push({ type: 'customerLeft', customerId: c.id });
+            events.push({ type: 'customerReadyToBuy', customerId: c.id });
             continue;
         }
 

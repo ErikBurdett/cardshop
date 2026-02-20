@@ -9,4 +9,5 @@ export {
 } from './persistence';
 export { xpToNext } from './progression';
 export { speedTierCost, maxSpeedTier, speedMultiplierForTier } from './upgrades';
-export type { GameState, SimEvent, SimSnapshot, SimSaveV1 } from './types';
+export { getShopTuning, type PackSkuId } from './shop';
+export type { GameState, SimEvent, SimSnapshot, SimSaveV1, SimSaveV2 } from './types';

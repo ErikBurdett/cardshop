@@ -8,6 +8,7 @@ export type SimConfig = {
         browseSecondsMin: number;
         browseSecondsMax: number;
         challengeChance: number; // 0..1
+        challengeTimeoutSeconds: number;
         saleValueMin: number;
         saleValueMax: number;
         xpPerSale: number;
@@ -36,6 +37,7 @@ export const SIM_CONFIG: SimConfig = {
         browseSecondsMin: 4,
         browseSecondsMax: 10,
         challengeChance: 0.25,
+        challengeTimeoutSeconds: 20,
         saleValueMin: 4,
         saleValueMax: 12,
         xpPerSale: 2,

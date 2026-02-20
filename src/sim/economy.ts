@@ -1,7 +1,8 @@
 import type { EconomyState } from './types';
 
 export function createInitialEconomy(): EconomyState {
-    return { money: 0 };
+    // Seed money so the player can immediately buy and stock packs.
+    return { money: 50 };
 }
 
 export function addMoney(economy: EconomyState, amount: number): EconomyState {

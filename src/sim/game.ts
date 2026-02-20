@@ -18,12 +18,26 @@ import {
     unlockedCardTier,
 } from './skills';
 import { resolveBattle } from './battle';
+import {
+    buyWholesalePacks,
+    clearShelfSlot,
+    createInitialShop,
+    getPackSku,
+    sellOneFromShelves,
+    stockShelfSlot,
+    unstockShelfSlot,
+    type PackSkuId,
+} from './shop';
 import type { GameState, SimEvent, SimSnapshot } from './types';
 
 export type SimAction =
     | { type: 'newGame'; seed?: number }
     | { type: 'togglePause' }
     | { type: 'purchaseSpeedTier' }
+    | { type: 'buyWholesalePack'; skuId: PackSkuId; quantity: number }
+    | { type: 'stockShelf'; slotIndex: number; skuId: PackSkuId; quantity: number }
+    | { type: 'unstockShelf'; slotIndex: number; quantity: number }
+    | { type: 'clearShelf'; slotIndex: number }
     | { type: 'unlockSkill'; skillId: SkillId }
     | { type: 'startBattle'; customerId: string }
     | { type: 'deckAddCard'; cardId: string }
@@ -40,6 +54,7 @@ export function createNewGameState(
         upgrades: createInitialUpgrades(),
         skills: createInitialSkills(),
         economy: createInitialEconomy(),
+        shop: createInitialShop(config),
         deck: createInitialDeck(),
         customers: createInitialCustomers(config),
         rngSeed: seed,
@@ -80,16 +95,42 @@ export class SimGame {
 
         const events: SimEvent[] = [...clockTick.events, ...custTick.events];
 
-        // Apply sale outcomes to economy + progression
-        for (const e of custTick.events) {
-            if (e.type !== 'saleCompleted') continue;
+        // Resolve purchases against shelf stock.
+        if (nextState.customers.customers.some((c) => c.status === 'readyToBuy')) {
+            const remainingCustomers = [];
+            let shop = nextState.shop;
+            let economy = nextState.economy;
+            let progression = nextState.progression;
+
+            for (const c of nextState.customers.customers) {
+                if (c.status !== 'readyToBuy') {
+                    remainingCustomers.push(c);
+                    continue;
+                }
+
+                const sale = sellOneFromShelves(shop, this.config);
+                if (sale.ok) {
+                    shop = sale.shop;
+                    economy = addMoney(economy, sale.event.value);
+                    progression = grantXp(progression, sale.event.xp, this.config).progression;
+                    events.push({
+                        type: 'saleCompleted',
+                        customerId: c.id,
+                        skuId: sale.event.skuId,
+                        value: sale.event.value,
+                        xp: sale.event.xp,
+                    });
+                }
+
+                events.push({ type: 'customerLeft', customerId: c.id });
+            }
+
             nextState = {
                 ...nextState,
-                economy: addMoney(nextState.economy, e.value),
-            };
-            nextState = {
-                ...nextState,
-                progression: grantXp(nextState.progression, e.xp, this.config).progression,
+                shop,
+                economy,
+                progression,
+                customers: { ...nextState.customers, customers: remainingCustomers },
             };
         }
 
@@ -118,6 +159,49 @@ export class SimGame {
                     economy: spendMoney(this.state.economy, cost),
                     upgrades: { ...this.state.upgrades, speedTier: tier + 1 },
                 };
+                return { ok: true };
+            }
+            case 'buyWholesalePack': {
+                const sku = getPackSku(action.skuId, this.config);
+                if (!sku) return { ok: false, reason: 'unknown_sku' };
+                if (sku.tier > unlockedCardTier(this.state.skills))
+                    return { ok: false, reason: 'tier_locked' };
+                const res = buyWholesalePacks(
+                    this.state.shop,
+                    this.state.economy,
+                    action.skuId,
+                    action.quantity,
+                    this.config,
+                );
+                if (!res.ok) return res;
+                this.state = { ...this.state, shop: res.shop, economy: res.economy };
+                return { ok: true };
+            }
+            case 'stockShelf': {
+                const sku = getPackSku(action.skuId, this.config);
+                if (!sku) return { ok: false, reason: 'unknown_sku' };
+                if (sku.tier > unlockedCardTier(this.state.skills))
+                    return { ok: false, reason: 'tier_locked' };
+                const res = stockShelfSlot(
+                    this.state.shop,
+                    action.slotIndex,
+                    action.skuId,
+                    action.quantity,
+                );
+                if (!res.ok) return res;
+                this.state = { ...this.state, shop: res.shop };
+                return { ok: true };
+            }
+            case 'unstockShelf': {
+                const res = unstockShelfSlot(this.state.shop, action.slotIndex, action.quantity);
+                if (!res.ok) return res;
+                this.state = { ...this.state, shop: res.shop };
+                return { ok: true };
+            }
+            case 'clearShelf': {
+                const res = clearShelfSlot(this.state.shop, action.slotIndex);
+                if (!res.ok) return res;
+                this.state = { ...this.state, shop: res.shop };
                 return { ok: true };
             }
             case 'unlockSkill': {
@@ -225,7 +309,21 @@ export class SimGame {
                 tier: c.tier,
                 intent: c.intent,
                 status: c.status,
+                challengeExpiresInSeconds: c.challengeExpiresInSeconds,
             })),
+            shop: {
+                backroom: {
+                    tier1Pack: this.state.shop.backroom.tier1Pack ?? 0,
+                    tier2Pack: this.state.shop.backroom.tier2Pack ?? 0,
+                },
+                shelves: {
+                    slots: this.state.shop.shelves.slots.map((s) => ({
+                        skuId: s.skuId,
+                        quantity: s.quantity,
+                        capacity: s.capacity,
+                    })),
+                },
+            },
             deck: this.state.deck,
         };
     }

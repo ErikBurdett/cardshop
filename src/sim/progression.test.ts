@@ -12,6 +12,7 @@ const TEST_CONFIG: SimConfig = {
         browseSecondsMin: 4,
         browseSecondsMax: 10,
         challengeChance: 0.25,
+        challengeTimeoutSeconds: 20,
         saleValueMin: 4,
         saleValueMax: 12,
         xpPerSale: 2,

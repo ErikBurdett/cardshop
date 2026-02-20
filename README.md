@@ -1,3 +1,76 @@
+# Card Shop Management Simulator (MVP)
+
+Phaser 3 + React + Vite + TypeScript project based on `phaserjs/template-react-ts`, evolving into a **Card Shop Management Simulator / Idle Game**.
+
+## Requirements
+
+- Node.js (WSL is fine)
+
+## Quick start (WSL)
+
+```bash
+npm install
+npm run dev
+```
+
+- Dev server runs on **port 5173** (see `vite/config.dev.mjs`) with `strictPort: true`.
+- Open the URL printed by Vite (typically `http://localhost:5173`).
+
+## Commands
+
+- `npm run dev`: start dev server (port 5173)
+- `npm run build`: production build (with template telemetry)
+- `npm run build-nolog`: production build (no telemetry)
+- `npm run build:sorceress`: build and print the `dist/` path for Sorceress preview
+- `npm test`: run sim unit tests (Vitest)
+- `npm run lint`: ESLint (flat config)
+- `npm run format`: Prettier
+
+## MVP features implemented
+
+- **Day/night clock** (day 300s, night 60s) with phase transitions
+- **Customers** spawn day+night (night slower), buy items for money+XP, or become battle-ready
+- **Pause/resume** (freezes sim time)
+- **XP → levels → skill points**
+- **Unlock gate**: skill to unlock **tier 2 cards**
+- **Speed modulator upgrade**:
+    - +0.05 per tier, capped at 3.0x
+    - monotonic cost formula (configurable)
+    - affects simulation tick speed
+- **Deck editor** (add/remove cards with tier gating)
+- **Battles** against battle-ready customers (instant MVP resolver)
+- **Persistence**:
+    - localStorage save/load with schema versioning
+    - autosave at **night start**
+    - manual save/load in Settings
+- **Tests**: Vitest unit tests for sim clock / upgrades / progression
+
+## Project architecture (high level)
+
+- **Simulation (no Phaser/React imports)**: `src/sim/**`
+- **Phaser scenes (render + input + sim ticking)**: `src/game/**`
+- **React UI (display + dispatch via facade/event bus)**: `src/App.tsx`, `src/game/GameFacade.ts`
+
+More details:
+
+- `docs/ARCHITECTURE.md`
+- `docs/GAME_DESIGN.md`
+- `docs/ASSETS.md`
+- `docs/SORCERESS.md`
+
+## Sorceress pipeline
+
+- Export generated assets into `public/assets/generated/`
+- For file-based preview, build and point Sorceress at `dist/`:
+
+```bash
+npm run build:sorceress
+```
+
+## Roadmap
+
+See `docs/GAME_DESIGN.md` for the TODO roadmap (packs, deeper battles, decor, balancing, etc.).
+
 # Phaser React TypeScript Template
 
 This is a Phaser 3 project template that uses the React framework and Vite for bundling. It includes a bridge for React to Phaser game communication, hot-reloading for quick development workflow and scripts to generate production-ready builds.

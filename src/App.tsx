@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PhaserGame } from './PhaserGame';
 import { GameFacade } from './game/GameFacade';
+import { getShopTuning, type PackSkuId } from './sim';
 import { CARDS } from './sim/cards/cards';
 import { SIM_CONFIG } from './sim/config';
 import { maxSpeedTier, speedTierCost } from './sim/upgrades';
@@ -21,6 +22,8 @@ export default function App() {
     const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
     const [toast, setToast] = useState<string | null>(null);
     const [lastBattle, setLastBattle] = useState<string | null>(null);
+
+    const shopTuning = useMemo(() => getShopTuning(SIM_CONFIG), []);
 
     useEffect(() => {
         const unsubSnapshot = GameFacade.onSnapshot((s) => setSnapshot(s));
@@ -62,6 +65,16 @@ export default function App() {
         const map = new Map(CARDS.map((c) => [c.id, c.name]));
         return (id: string) => map.get(id) ?? id;
     }, []);
+
+    const packNameById = useMemo(() => {
+        const map = new Map(shopTuning.packSkus.map((s) => [s.id, s.name]));
+        return (id: string) => map.get(id as PackSkuId) ?? id;
+    }, [shopTuning.packSkus]);
+
+    const allowedPackSkus = useMemo(() => {
+        if (!snapshot) return shopTuning.packSkus.filter((s) => s.tier === 1);
+        return shopTuning.packSkus.filter((s) => s.tier <= snapshot.unlockedCardTier);
+    }, [shopTuning.packSkus, snapshot]);
 
     return (
         <div id="app">
@@ -136,6 +149,33 @@ export default function App() {
                     <div className="panel">
                         {tab === 'Shop' ? (
                             <div className="stack">
+                                <div className="subtle">Shelf stock</div>
+                                <div className="list">
+                                    {snapshot ? (
+                                        snapshot.shop.shelves.slots.map((slot, idx) => (
+                                            <div key={idx} className="listRow">
+                                                <div>
+                                                    <strong>Slot {idx + 1}</strong> •{' '}
+                                                    {slot.skuId
+                                                        ? packNameById(slot.skuId)
+                                                        : 'Empty'}{' '}
+                                                    • {slot.quantity}/{slot.capacity}
+                                                </div>
+                                                <div className="row">
+                                                    <button
+                                                        className="button"
+                                                        onClick={() => setTab('Manage')}
+                                                    >
+                                                        Manage
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="subtle">Waiting for sim…</div>
+                                    )}
+                                </div>
+
                                 <div className="row">
                                     <button
                                         className="button buttonPrimary"
@@ -166,6 +206,10 @@ export default function App() {
                                                 <div>
                                                     <strong>{c.name}</strong> (T{c.tier}) •{' '}
                                                     {c.intent} • {c.status}
+                                                    {c.status === 'waitingBattle' &&
+                                                    c.challengeExpiresInSeconds != null
+                                                        ? ` • expires in ${Math.ceil(c.challengeExpiresInSeconds)}s`
+                                                        : ''}
                                                 </div>
                                                 <div className="row">
                                                     <button
@@ -190,9 +234,119 @@ export default function App() {
 
                         {tab === 'Manage' ? (
                             <div className="stack">
-                                <div className="subtle">
-                                    MVP placeholder. Decor/customization and shop upgrades will live
-                                    here.
+                                <div className="subtle">Backroom inventory</div>
+                                <div className="list">
+                                    {allowedPackSkus.map((sku) => (
+                                        <div key={sku.id} className="listRow">
+                                            <div>
+                                                <strong>{sku.name}</strong> • Tier {sku.tier} •{' '}
+                                                Backroom:{' '}
+                                                <strong>
+                                                    {snapshot?.shop.backroom[sku.id] ?? 0}
+                                                </strong>
+                                            </div>
+                                            <div className="row">
+                                                <button
+                                                    className="button"
+                                                    onClick={() => setTab('Packs')}
+                                                >
+                                                    Buy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="subtle">Shelves</div>
+                                <div className="list">
+                                    {snapshot ? (
+                                        snapshot.shop.shelves.slots.map((slot, idx) => (
+                                            <div key={idx} className="listRow">
+                                                <div>
+                                                    <strong>Slot {idx + 1}</strong> •{' '}
+                                                    {slot.skuId
+                                                        ? packNameById(slot.skuId)
+                                                        : 'Empty'}{' '}
+                                                    • {slot.quantity}/{slot.capacity}
+                                                </div>
+                                                <div className="row">
+                                                    {allowedPackSkus.map((sku) => {
+                                                        const backroom =
+                                                            snapshot.shop.backroom[sku.id] ?? 0;
+                                                        const space = slot.capacity - slot.quantity;
+                                                        const canStock =
+                                                            (slot.skuId === null ||
+                                                                slot.skuId === sku.id) &&
+                                                            backroom > 0 &&
+                                                            space > 0;
+
+                                                        return (
+                                                            <button
+                                                                key={sku.id}
+                                                                className="button"
+                                                                disabled={!canStock}
+                                                                onClick={() =>
+                                                                    GameFacade.dispatch({
+                                                                        type: 'stockShelf',
+                                                                        slotIndex: idx,
+                                                                        skuId: sku.id,
+                                                                        quantity: 1,
+                                                                    })
+                                                                }
+                                                                title={
+                                                                    canStock
+                                                                        ? `Stock ${sku.name} (+1)`
+                                                                        : 'Cannot stock'
+                                                                }
+                                                            >
+                                                                Stock {sku.tier} +1
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    <button
+                                                        className="button"
+                                                        disabled={slot.quantity <= 0}
+                                                        onClick={() =>
+                                                            GameFacade.dispatch({
+                                                                type: 'unstockShelf',
+                                                                slotIndex: idx,
+                                                                quantity: 1,
+                                                            })
+                                                        }
+                                                    >
+                                                        Unstock 1
+                                                    </button>
+                                                    <button
+                                                        className="button"
+                                                        disabled={slot.quantity <= 0}
+                                                        onClick={() =>
+                                                            GameFacade.dispatch({
+                                                                type: 'unstockShelf',
+                                                                slotIndex: idx,
+                                                                quantity: slot.quantity,
+                                                            })
+                                                        }
+                                                    >
+                                                        Unstock all
+                                                    </button>
+                                                    <button
+                                                        className="button"
+                                                        disabled={slot.quantity !== 0}
+                                                        onClick={() =>
+                                                            GameFacade.dispatch({
+                                                                type: 'clearShelf',
+                                                                slotIndex: idx,
+                                                            })
+                                                        }
+                                                    >
+                                                        Clear
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="subtle">Waiting for sim…</div>
+                                    )}
                                 </div>
                             </div>
                         ) : null}
@@ -200,8 +354,57 @@ export default function App() {
                         {tab === 'Packs' ? (
                             <div className="stack">
                                 <div className="subtle">
-                                    MVP placeholder. Pack opening and card acquisition will live
-                                    here.
+                                    Buy wholesale packs into backroom inventory, then stock them on
+                                    shelves in Manage.
+                                </div>
+                                <div className="list">
+                                    {allowedPackSkus.map((sku) => (
+                                        <div key={sku.id} className="listRow">
+                                            <div>
+                                                <strong>{sku.name}</strong> • Tier {sku.tier} •
+                                                Cost: ${sku.wholesaleCost} • Sell: ${sku.salePrice}
+                                            </div>
+                                            <div className="row">
+                                                <button
+                                                    className="button buttonPrimary"
+                                                    disabled={
+                                                        !snapshot ||
+                                                        snapshot.money < sku.wholesaleCost
+                                                    }
+                                                    onClick={() =>
+                                                        GameFacade.dispatch({
+                                                            type: 'buyWholesalePack',
+                                                            skuId: sku.id,
+                                                            quantity: 1,
+                                                        })
+                                                    }
+                                                >
+                                                    Buy 1
+                                                </button>
+                                                <button
+                                                    className="button"
+                                                    disabled={
+                                                        !snapshot ||
+                                                        snapshot.money < sku.wholesaleCost * 5
+                                                    }
+                                                    onClick={() =>
+                                                        GameFacade.dispatch({
+                                                            type: 'buyWholesalePack',
+                                                            skuId: sku.id,
+                                                            quantity: 5,
+                                                        })
+                                                    }
+                                                >
+                                                    Buy 5
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="row">
+                                    <button className="button" onClick={() => setTab('Manage')}>
+                                        Go to Manage
+                                    </button>
                                 </div>
                             </div>
                         ) : null}

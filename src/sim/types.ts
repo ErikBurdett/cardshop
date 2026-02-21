@@ -38,6 +38,13 @@ export type SimEvent =
           result: 'win' | 'loss';
           moneyDelta: number;
           xpDelta: number;
+      }
+    | {
+          type: 'packOpened';
+          packId: string;
+          tier: CardTier;
+          rarity: CardRarity;
+          cards: Array<{ cardId: string; attack: number; health: number; rarity: CardRarity }>;
       };
 
 export type ClockState = {
@@ -65,13 +72,17 @@ export type EconomyState = {
     money: number;
 };
 
-export type CardTier = 1 | 2 | 3 | 4 | 5;
+export type CardTier = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
+export type CardRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type CardDefinition = {
     id: string;
     name: string;
     tier: CardTier;
-    power: number;
+    rarity: CardRarity;
+    attack: number;
+    health: number;
 };
 
 export type DeckState = {
@@ -90,6 +101,7 @@ export type Customer = {
     status: CustomerStatus;
     timeToDecisionSeconds: number;
     challengeExpiresInSeconds?: number;
+    deckCardIds: string[];
 };
 
 export type CustomersState = {
@@ -106,6 +118,8 @@ export type GameState = {
     skills: SkillsState;
     economy: EconomyState;
     shop: ShopState;
+    sealedPacks: Record<string, number>;
+    collection: Record<string, number>;
     deck: DeckState;
     customers: CustomersState;
     rngSeed: number;
@@ -139,6 +153,8 @@ export type SimSnapshot = {
             }>;
         };
     };
+    sealedPacks: Record<string, number>;
+    collection: Array<{ cardId: string; count: number }>;
     deck: DeckState;
 };
 
@@ -150,6 +166,12 @@ export type SimSaveV1 = {
 
 export type SimSaveV2 = {
     schemaVersion: 2;
+    savedAtIso: string;
+    state: GameState;
+};
+
+export type SimSaveV3 = {
+    schemaVersion: 3;
     savedAtIso: string;
     state: GameState;
 };

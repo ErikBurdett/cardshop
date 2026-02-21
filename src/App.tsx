@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PhaserGame } from './PhaserGame';
 import { GameFacade } from './game/GameFacade';
-import { getShopTuning, type PackSkuId } from './sim';
+import { getPlayerPackDefinitions, getShopTuning, SKILLS, type PackSkuId } from './sim';
 import { CARDS } from './sim/cards/cards';
 import { SIM_CONFIG } from './sim/config';
 import { maxSpeedTier, speedTierCost } from './sim/upgrades';
@@ -22,8 +22,11 @@ export default function App() {
     const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
     const [toast, setToast] = useState<string | null>(null);
     const [lastBattle, setLastBattle] = useState<string | null>(null);
+    const [lastPackOpened, setLastPackOpened] = useState<string | null>(null);
+    const [showCollection, setShowCollection] = useState<boolean>(false);
 
     const shopTuning = useMemo(() => getShopTuning(SIM_CONFIG), []);
+    const playerPackDefs = useMemo(() => getPlayerPackDefinitions(SIM_CONFIG), []);
 
     useEffect(() => {
         const unsubSnapshot = GameFacade.onSnapshot((s) => setSnapshot(s));
@@ -40,6 +43,16 @@ export default function App() {
                 setLastBattle(
                     `Battle vs ${e.customerId}: ${e.result.toUpperCase()} (+$${e.moneyDelta}, +${e.xpDelta}xp)`,
                 );
+            }
+            if (e.type === 'packOpened') {
+                setLastPackOpened(
+                    `Opened ${e.packId} → ${e.cards
+                        .map((c) => c.cardId)
+                        .slice(0, 8)
+                        .join(', ')}`,
+                );
+                setShowCollection(true);
+                window.setTimeout(() => setLastPackOpened(null), 6000);
             }
         });
 
@@ -62,8 +75,8 @@ export default function App() {
     }, [snapshot]);
 
     const cardNameById = useMemo(() => {
-        const map = new Map(CARDS.map((c) => [c.id, c.name]));
-        return (id: string) => map.get(id) ?? id;
+        const map = new Map(CARDS.map((c) => [c.id, c]));
+        return (id: string) => map.get(id);
     }, []);
 
     const packNameById = useMemo(() => {
@@ -75,6 +88,20 @@ export default function App() {
         if (!snapshot) return shopTuning.packSkus.filter((s) => s.tier === 1);
         return shopTuning.packSkus.filter((s) => s.tier <= snapshot.unlockedCardTier);
     }, [shopTuning.packSkus, snapshot]);
+
+    const ownedCounts = useMemo(() => {
+        const map = new Map<string, number>();
+        if (!snapshot) return map;
+        for (const e of snapshot.collection) map.set(e.cardId, e.count);
+        return map;
+    }, [snapshot]);
+
+    const deckCounts = useMemo(() => {
+        const map = new Map<string, number>();
+        if (!snapshot) return map;
+        for (const id of snapshot.deck.cardIds) map.set(id, (map.get(id) ?? 0) + 1);
+        return map;
+    }, [snapshot]);
 
     return (
         <div id="app">
@@ -401,6 +428,148 @@ export default function App() {
                                         </div>
                                     ))}
                                 </div>
+
+                                <div className="notice">
+                                    <div>
+                                        <strong>Player packs</strong> (open to grow your collection)
+                                    </div>
+                                    <div className="subtle">
+                                        Each opened pack gives <strong>8 cards</strong> from the
+                                        selected tier and rarity.
+                                    </div>
+                                </div>
+
+                                {lastPackOpened ? (
+                                    <div className="notice">{lastPackOpened}</div>
+                                ) : null}
+
+                                <div className="list">
+                                    {playerPackDefs
+                                        .filter(
+                                            (p) => !snapshot || p.tier <= snapshot.unlockedCardTier,
+                                        )
+                                        .map((p) => {
+                                            const sealed = snapshot?.sealedPacks?.[p.id] ?? 0;
+                                            return (
+                                                <div key={p.id} className="listRow">
+                                                    <div>
+                                                        <strong>{p.name}</strong> • Cost: ${p.cost}{' '}
+                                                        • Owned: <strong>{sealed}</strong>
+                                                    </div>
+                                                    <div className="row">
+                                                        <button
+                                                            className="button buttonPrimary"
+                                                            disabled={
+                                                                !snapshot || snapshot.money < p.cost
+                                                            }
+                                                            onClick={() =>
+                                                                GameFacade.dispatch({
+                                                                    type: 'buyPlayerPack',
+                                                                    packId: p.id,
+                                                                    quantity: 1,
+                                                                })
+                                                            }
+                                                        >
+                                                            Buy 1
+                                                        </button>
+                                                        <button
+                                                            className="button"
+                                                            disabled={
+                                                                !snapshot ||
+                                                                snapshot.money < p.cost * 5
+                                                            }
+                                                            onClick={() =>
+                                                                GameFacade.dispatch({
+                                                                    type: 'buyPlayerPack',
+                                                                    packId: p.id,
+                                                                    quantity: 5,
+                                                                })
+                                                            }
+                                                        >
+                                                            Buy 5
+                                                        </button>
+                                                        <button
+                                                            className="button"
+                                                            disabled={!snapshot || sealed <= 0}
+                                                            onClick={() =>
+                                                                GameFacade.dispatch({
+                                                                    type: 'openPlayerPack',
+                                                                    packId: p.id,
+                                                                })
+                                                            }
+                                                        >
+                                                            Open 1
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                </div>
+
+                                <div className="row">
+                                    <button
+                                        className="button"
+                                        onClick={() => setShowCollection((v) => !v)}
+                                        disabled={!snapshot}
+                                    >
+                                        {showCollection ? 'Hide' : 'Show'} Collection
+                                    </button>
+                                </div>
+
+                                {showCollection ? (
+                                    <div className="stack">
+                                        <div className="subtle">Collection (scroll)</div>
+                                        <div
+                                            className="list"
+                                            style={{
+                                                maxHeight: 360,
+                                                overflow: 'auto',
+                                            }}
+                                        >
+                                            {snapshot?.collection.length ? (
+                                                snapshot.collection
+                                                    .slice()
+                                                    .sort((a, b) => {
+                                                        const ca = cardNameById(a.cardId);
+                                                        const cb = cardNameById(b.cardId);
+                                                        const ta = ca?.tier ?? 0;
+                                                        const tb = cb?.tier ?? 0;
+                                                        if (ta !== tb) return ta - tb;
+                                                        return a.cardId.localeCompare(b.cardId);
+                                                    })
+                                                    .map((e) => {
+                                                        const c = cardNameById(e.cardId);
+                                                        return (
+                                                            <div key={e.cardId} className="listRow">
+                                                                <div>
+                                                                    <strong>
+                                                                        {c?.name ?? e.cardId}
+                                                                    </strong>{' '}
+                                                                    <span className="subtle">
+                                                                        ({e.cardId})
+                                                                    </span>
+                                                                    <div className="subtle">
+                                                                        T{c?.tier ?? '?'} •{' '}
+                                                                        {c?.rarity ?? '?'} • ATK{' '}
+                                                                        {c?.attack ?? '?'} / HP{' '}
+                                                                        {c?.health ?? '?'}
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    x<strong>{e.count}</strong>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                            ) : (
+                                                <div className="subtle">
+                                                    No cards collected yet.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : null}
+
                                 <div className="row">
                                     <button className="button" onClick={() => setTab('Manage')}>
                                         Go to Manage
@@ -419,7 +588,8 @@ export default function App() {
                                     {snapshot?.deck.cardIds.map((id, idx) => (
                                         <div key={`${id}-${idx}`} className="listRow">
                                             <div>
-                                                {idx + 1}. <strong>{cardNameById(id)}</strong>{' '}
+                                                {idx + 1}.{' '}
+                                                <strong>{cardNameById(id)?.name ?? id}</strong>{' '}
                                                 <span className="subtle">({id})</span>
                                             </div>
                                             <button
@@ -437,25 +607,37 @@ export default function App() {
                                     )) ?? <div className="subtle">No snapshot yet.</div>}
                                 </div>
 
-                                <div className="subtle">Add cards</div>
+                                <div className="subtle">Add cards (owned only)</div>
                                 <div className="grid">
                                     {CARDS.filter(
-                                        (c) => !snapshot || c.tier <= snapshot.unlockedCardTier,
-                                    ).map((c) => (
-                                        <button
-                                            key={c.id}
-                                            className="button"
-                                            disabled={!snapshot}
-                                            onClick={() =>
-                                                GameFacade.dispatch({
-                                                    type: 'deckAddCard',
-                                                    cardId: c.id,
-                                                })
-                                            }
-                                        >
-                                            {c.name} (T{c.tier})
-                                        </button>
-                                    ))}
+                                        (c) =>
+                                            !!snapshot &&
+                                            c.tier <= snapshot.unlockedCardTier &&
+                                            (ownedCounts.get(c.id) ?? 0) >
+                                                (deckCounts.get(c.id) ?? 0),
+                                    )
+                                        .slice(0, 120)
+                                        .map((c) => (
+                                            <button
+                                                key={c.id}
+                                                className="button"
+                                                disabled={!snapshot}
+                                                onClick={() =>
+                                                    GameFacade.dispatch({
+                                                        type: 'deckAddCard',
+                                                        cardId: c.id,
+                                                    })
+                                                }
+                                            >
+                                                {c.name} • T{c.tier} • {c.rarity} •{' '}
+                                                {deckCounts.get(c.id) ?? 0}/
+                                                {ownedCounts.get(c.id) ?? 0}
+                                            </button>
+                                        ))}
+                                </div>
+                                <div className="subtle">
+                                    Showing up to 120 addable cards (expand with filters/search
+                                    later).
                                 </div>
                             </div>
                         ) : null}
@@ -500,32 +682,59 @@ export default function App() {
                                     Skill points: <strong>{snapshot?.skillPoints ?? 0}</strong>
                                 </div>
                                 <div className="list">
-                                    <div className="listRow">
-                                        <div>
-                                            <strong>Unlock Tier 2 Cards</strong>
-                                            <div className="subtle">
-                                                Grants access to tier 2 cards (gated feature).
+                                    {(
+                                        [
+                                            { id: 'unlockTier2Cards', tier: 2 },
+                                            { id: 'unlockTier3Cards', tier: 3 },
+                                            { id: 'unlockTier4Cards', tier: 4 },
+                                            { id: 'unlockTier5Cards', tier: 5 },
+                                            { id: 'unlockTier6Cards', tier: 6 },
+                                            { id: 'unlockTier7Cards', tier: 7 },
+                                            { id: 'unlockTier8Cards', tier: 8 },
+                                            { id: 'unlockTier9Cards', tier: 9 },
+                                        ] as const
+                                    ).map((s) => {
+                                        const def = SKILLS[s.id];
+                                        const unlocked =
+                                            snapshot != null && snapshot.unlockedCardTier >= s.tier;
+                                        const prereqOk =
+                                            !def.requires ||
+                                            (snapshot != null &&
+                                                snapshot.unlockedCardTier >= s.tier - 1);
+                                        const canBuy =
+                                            snapshot != null &&
+                                            !unlocked &&
+                                            prereqOk &&
+                                            snapshot.skillPoints >= def.cost;
+
+                                        return (
+                                            <div key={s.id} className="listRow">
+                                                <div>
+                                                    <strong>{def.name}</strong>
+                                                    <div className="subtle">
+                                                        Cost: {def.cost} SP
+                                                        {def.requires
+                                                            ? ' • Requires previous tier'
+                                                            : ''}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    className="button buttonPrimary"
+                                                    disabled={!canBuy}
+                                                    onClick={() =>
+                                                        GameFacade.dispatch({
+                                                            type: 'unlockSkill',
+                                                            skillId: s.id,
+                                                        })
+                                                    }
+                                                >
+                                                    {unlocked
+                                                        ? 'Unlocked'
+                                                        : `Unlock (Tier ${s.tier})`}
+                                                </button>
                                             </div>
-                                        </div>
-                                        <button
-                                            className="button buttonPrimary"
-                                            disabled={
-                                                !snapshot ||
-                                                snapshot.skillPoints <= 0 ||
-                                                snapshot.unlockedCardTier >= 2
-                                            }
-                                            onClick={() =>
-                                                GameFacade.dispatch({
-                                                    type: 'unlockSkill',
-                                                    skillId: 'unlockTier2Cards',
-                                                })
-                                            }
-                                        >
-                                            {snapshot?.unlockedCardTier >= 2
-                                                ? 'Unlocked'
-                                                : 'Unlock (1 SP)'}
-                                        </button>
-                                    </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ) : null}

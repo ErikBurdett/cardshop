@@ -20,10 +20,11 @@ export function tickClock(
     config: SimConfig,
 ): { clock: ClockState; events: SimEvent[] } {
     const events: SimEvent[] = [];
-    let phase = clock.phase;
-    let time = clock.timeInPhaseSeconds + dtSimSeconds;
-    let dayNumber = clock.dayNumber;
-    let duration = clock.phaseDurationSeconds;
+    let phase: GamePhase = clock.phase === 'night' ? 'night' : 'day';
+    const dt = Number.isFinite(dtSimSeconds) ? Math.max(0, dtSimSeconds) : 0;
+    let time = (Number.isFinite(clock.timeInPhaseSeconds) ? clock.timeInPhaseSeconds : 0) + dt;
+    let dayNumber = Number.isFinite(clock.dayNumber) ? Math.max(1, Math.floor(clock.dayNumber)) : 1;
+    let duration = durationForPhase(phase, config);
 
     // Handle multiple transitions if dt is large (still deterministic).
     while (time >= duration) {

@@ -18,11 +18,13 @@ import {
     unlockedCardTier,
 } from './skills';
 import { resolveBattle } from './battle';
+import { buyPlayerPacks, openPlayerPack } from './packs';
 import {
     buyWholesalePacks,
     clearShelfSlot,
     createInitialShop,
     getPackSku,
+    getShopTuning,
     sellOneFromShelves,
     stockShelfSlot,
     unstockShelfSlot,
@@ -35,6 +37,8 @@ export type SimAction =
     | { type: 'togglePause' }
     | { type: 'purchaseSpeedTier' }
     | { type: 'buyWholesalePack'; skuId: PackSkuId; quantity: number }
+    | { type: 'buyPlayerPack'; packId: string; quantity: number }
+    | { type: 'openPlayerPack'; packId: string }
     | { type: 'stockShelf'; slotIndex: number; skuId: PackSkuId; quantity: number }
     | { type: 'unstockShelf'; slotIndex: number; quantity: number }
     | { type: 'clearShelf'; slotIndex: number }
@@ -55,6 +59,13 @@ export function createNewGameState(
         skills: createInitialSkills(),
         economy: createInitialEconomy(),
         shop: createInitialShop(config),
+        sealedPacks: {},
+        collection: {
+            // Starter collection matches `createInitialDeck`.
+            t1_c01: 2,
+            t1_c02: 2,
+            t1_c03: 1,
+        },
         deck: createInitialDeck(),
         customers: createInitialCustomers(config),
         rngSeed: seed,
@@ -64,6 +75,10 @@ export function createNewGameState(
 export class SimGame {
     private config: SimConfig;
     state: GameState;
+    private lastCollectionRef?: GameState['collection'];
+    private cachedCollectionEntries: Array<{ cardId: string; count: number }> = [];
+    private lastSealedPacksRef?: GameState['sealedPacks'];
+    private cachedSealedPacks: Record<string, number> = {};
 
     constructor(config: SimConfig = SIM_CONFIG, seed?: number) {
         this.config = config;
@@ -177,6 +192,33 @@ export class SimGame {
                 this.state = { ...this.state, shop: res.shop, economy: res.economy };
                 return { ok: true };
             }
+            case 'buyPlayerPack': {
+                // Tier gating for player packs uses the same unlock tier.
+                const unlockedTier = unlockedCardTier(this.state.skills);
+                const tierMatch = action.packId.match(/playerPack_t(\d+)_/);
+                if (tierMatch) {
+                    const t = Number(tierMatch[1]);
+                    if (Number.isFinite(t) && t > unlockedTier)
+                        return { ok: false, reason: 'tier_locked' };
+                }
+                const res = buyPlayerPacks(this.state, action.packId, action.quantity, this.config);
+                if (!res.ok) return res;
+                this.state = res.state;
+                return { ok: true };
+            }
+            case 'openPlayerPack': {
+                const unlockedTier = unlockedCardTier(this.state.skills);
+                const tierMatch = action.packId.match(/playerPack_t(\d+)_/);
+                if (tierMatch) {
+                    const t = Number(tierMatch[1]);
+                    if (Number.isFinite(t) && t > unlockedTier)
+                        return { ok: false, reason: 'tier_locked' };
+                }
+                const res = openPlayerPack(this.state, action.packId, this.config);
+                if (!res.ok) return res;
+                this.state = res.state;
+                return { ok: true, events: res.events };
+            }
             case 'stockShelf': {
                 const sku = getPackSku(action.skuId, this.config);
                 if (!sku) return { ok: false, reason: 'unknown_sku' };
@@ -209,6 +251,8 @@ export class SimGame {
                 if (!def) return { ok: false, reason: 'unknown_skill' };
                 if (isSkillUnlocked(this.state.skills, action.skillId))
                     return { ok: false, reason: 'already_unlocked' };
+                if (def.requires && !isSkillUnlocked(this.state.skills, def.requires))
+                    return { ok: false, reason: 'missing_prereq' };
                 if (this.state.progression.skillPoints < def.cost)
                     return { ok: false, reason: 'insufficient_skill_points' };
                 this.state = {
@@ -235,6 +279,7 @@ export class SimGame {
                 const result = resolveBattle(
                     this.state.deck.cardIds,
                     customer.tier,
+                    customer.deckCardIds,
                     this.state.rngSeed,
                 );
                 const { progression } = grantXp(
@@ -269,7 +314,8 @@ export class SimGame {
             }
             case 'deckAddCard': {
                 const unlockedTier = unlockedCardTier(this.state.skills);
-                const res = addCardToDeck(this.state.deck, action.cardId, unlockedTier);
+                const owned = this.state.collection[action.cardId] ?? 0;
+                const res = addCardToDeck(this.state.deck, action.cardId, unlockedTier, owned);
                 if (!res.ok) return { ok: false, reason: res.reason ?? 'invalid' };
                 this.state = { ...this.state, deck: res.deck };
                 return { ok: true };
@@ -290,6 +336,20 @@ export class SimGame {
 
     snapshot(): SimSnapshot {
         const unlockedTier = unlockedCardTier(this.state.skills);
+        const tuning = getShopTuning(this.config);
+
+        if (this.lastCollectionRef !== this.state.collection) {
+            this.lastCollectionRef = this.state.collection;
+            this.cachedCollectionEntries = Object.entries(this.state.collection)
+                .filter(([, count]) => (count ?? 0) > 0)
+                .map(([cardId, count]) => ({ cardId, count: count ?? 0 }));
+        }
+
+        if (this.lastSealedPacksRef !== this.state.sealedPacks) {
+            this.lastSealedPacksRef = this.state.sealedPacks;
+            this.cachedSealedPacks = { ...this.state.sealedPacks };
+        }
+
         return {
             paused: this.state.paused,
             phase: this.state.clock.phase,
@@ -312,10 +372,9 @@ export class SimGame {
                 challengeExpiresInSeconds: c.challengeExpiresInSeconds,
             })),
             shop: {
-                backroom: {
-                    tier1Pack: this.state.shop.backroom.tier1Pack ?? 0,
-                    tier2Pack: this.state.shop.backroom.tier2Pack ?? 0,
-                },
+                backroom: Object.fromEntries(
+                    tuning.packSkus.map((sku) => [sku.id, this.state.shop.backroom[sku.id] ?? 0]),
+                ),
                 shelves: {
                     slots: this.state.shop.shelves.slots.map((s) => ({
                         skuId: s.skuId,
@@ -324,6 +383,8 @@ export class SimGame {
                     })),
                 },
             },
+            sealedPacks: this.cachedSealedPacks,
+            collection: this.cachedCollectionEntries,
             deck: this.state.deck,
         };
     }

@@ -9,28 +9,28 @@ export type BattleResult = {
     seed: number;
 };
 
-function deckPower(cardIds: string[]): number {
-    let total = 0;
+function deckScore(cardIds: string[]): number {
+    let attack = 0;
+    let health = 0;
     for (const id of cardIds) {
         const c = getCardById(id);
-        if (c) total += c.power;
+        if (!c) continue;
+        attack += c.attack;
+        health += c.health;
     }
-    return total;
-}
-
-export function customerDeckForTier(tier: CardTier): string[] {
-    if (tier >= 2) return ['cleave', 'ward', 'strike', 'guard', 'spark'];
-    return ['strike', 'guard', 'spark', 'guard', 'strike'];
+    // A light weighting to make attack matter a bit more.
+    return attack * 1.15 + health;
 }
 
 export function resolveBattle(
     playerDeckCardIds: string[],
     customerTier: CardTier,
+    customerDeckCardIds: string[],
     seed: number,
 ): BattleResult {
     let s = seed;
-    const playerBase = deckPower(playerDeckCardIds);
-    const enemyBase = deckPower(customerDeckForTier(customerTier));
+    const playerBase = deckScore(playerDeckCardIds);
+    const enemyBase = deckScore(customerDeckCardIds);
 
     // Small deterministic variance so battles aren't always identical.
     const { value: pVar, seed: s1 } = randIntInclusive(s, -2, 2);

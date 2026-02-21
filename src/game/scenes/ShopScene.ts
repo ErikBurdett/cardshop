@@ -57,9 +57,7 @@ export class ShopScene extends Scene {
 
     create() {
         // World: outside + shop interior.
-        this.add
-            .tileSprite(512, 384, 1024, 768, 'outside_world_tile')
-            .setDepth(-100);
+        this.add.tileSprite(512, 384, 1024, 768, 'outside_world_tile').setDepth(-100);
 
         this.shopBounds = new Geom.Rectangle(160, 110, 760, 560);
         const shopCx = this.shopBounds.centerX;
@@ -102,7 +100,6 @@ export class ShopScene extends Scene {
                 this.sim.state = loaded.state;
             }
         } catch (err) {
-            // eslint-disable-next-line no-console
             console.warn('[ShopScene] loadFromStorage failed (continuing)', err);
         }
 
@@ -157,8 +154,16 @@ export class ShopScene extends Scene {
 
         // Click-to-walk inside the shop.
         this.floorZone.on('pointerdown', (p: Phaser.Input.Pointer) => {
-            const x = PhaserMath.Clamp(p.worldX, this.shopBounds.left + 20, this.shopBounds.right - 20);
-            const y = PhaserMath.Clamp(p.worldY, this.shopBounds.top + 20, this.shopBounds.bottom - 20);
+            const x = PhaserMath.Clamp(
+                p.worldX,
+                this.shopBounds.left + 20,
+                this.shopBounds.right - 20,
+            );
+            const y = PhaserMath.Clamp(
+                p.worldY,
+                this.shopBounds.top + 20,
+                this.shopBounds.bottom - 20,
+            );
             this.movePlayerTo({ x, y }, { returnToCheckoutAfterMs: 4000 });
         });
 
@@ -210,7 +215,6 @@ export class ShopScene extends Scene {
         } catch (err) {
             // If anything in the frame throws, keep the game loop alive.
             this.updateErrorCount += 1;
-            // eslint-disable-next-line no-console
             console.error('[ShopScene] update error (loop continues)', err);
 
             // Still try to emit a snapshot so UI can recover.
@@ -256,7 +260,6 @@ export class ShopScene extends Scene {
             saveToStorage(window.localStorage, this.sim.state, SAVE_KEY);
             EventBus.emit('sim:saved');
         } catch (err) {
-            // eslint-disable-next-line no-console
             console.warn('[ShopScene] saveToStorage failed', err);
             EventBus.emit('sim:saveFailed', String(err));
         } finally {
@@ -274,7 +277,6 @@ export class ShopScene extends Scene {
                 EventBus.emit('sim:loadFailed', loaded.reason);
             }
         } catch (err) {
-            // eslint-disable-next-line no-console
             console.warn('[ShopScene] loadFromStorage failed', err);
             EventBus.emit('sim:loadFailed', 'storage_error');
         } finally {
@@ -318,9 +320,7 @@ export class ShopScene extends Scene {
                     .setStrokeStyle(0, 0x000000)
                     .setDepth(12);
 
-                const sprite = this.add
-                    .sprite(0, 6, 'knight_walking_sheet', 0)
-                    .setOrigin(0.5, 0.5);
+                const sprite = this.add.sprite(0, 6, 'knight_walking_sheet', 0).setOrigin(0.5, 0.5);
                 sprite.anims.stop();
                 sprite.setFrame(0);
                 sprite.setDepth(13);
@@ -439,9 +439,7 @@ export class ShopScene extends Scene {
                     })
                     .setOrigin(0.5)
                     .setDepth(11);
-                const container = this.add
-                    .container(p.x, p.y, [rect, label])
-                    .setSize(170, slotH);
+                const container = this.add.container(p.x, p.y, [rect, label]).setSize(170, slotH);
                 view = { container, rect, label };
                 this.shelfViews.set(idx, view);
             }

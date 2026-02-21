@@ -2,7 +2,19 @@ import type { CardTier, EconomyState, SimEvent } from './types';
 import type { SimConfig } from './config';
 import { canAfford, spendMoney } from './economy';
 
-export type PackSkuId = 'tier1Pack' | 'tier2Pack';
+export const SHOP_PACK_SKU_IDS = [
+    'tier1Pack',
+    'tier2Pack',
+    'tier3Pack',
+    'tier4Pack',
+    'tier5Pack',
+    'tier6Pack',
+    'tier7Pack',
+    'tier8Pack',
+    'tier9Pack',
+] as const;
+
+export type PackSkuId = (typeof SHOP_PACK_SKU_IDS)[number];
 
 export type PackSkuDefinition = {
     id: PackSkuId;
@@ -34,38 +46,31 @@ export type ShopTuning = {
 
 export function getShopTuning(config: SimConfig): ShopTuning {
     void config;
-    // MVP: hard-coded SKUs; can later be data-driven via config.
+    // MVP: data-driven SKUs; wholesale/sale values scale by tier.
     return {
         shelfSlots: 4,
         shelfSlotCapacity: 6,
-        packSkus: [
-            {
-                id: 'tier1Pack',
-                name: 'Starter Pack',
-                tier: 1,
-                wholesaleCost: 6,
-                salePrice: 10,
-                xpPerSale: 3,
-            },
-            {
-                id: 'tier2Pack',
-                name: 'Advanced Pack',
-                tier: 2,
-                wholesaleCost: 14,
-                salePrice: 22,
-                xpPerSale: 6,
-            },
-        ],
+        packSkus: SHOP_PACK_SKU_IDS.map((id, idx) => {
+            const tier = (idx + 1) as CardTier;
+            const wholesaleCost = Math.ceil(4 + tier * tier * 2.2);
+            const salePrice = Math.ceil(wholesaleCost * 1.6);
+            const xpPerSale = Math.ceil(2 + tier * 1.5);
+            return {
+                id,
+                name: `Sealed Pack (Tier ${tier})`,
+                tier,
+                wholesaleCost,
+                salePrice,
+                xpPerSale,
+            } satisfies PackSkuDefinition;
+        }),
     };
 }
 
 export function createInitialShop(config: SimConfig): ShopState {
     const tuning = getShopTuning(config);
     return {
-        backroom: {
-            tier1Pack: 0,
-            tier2Pack: 0,
-        },
+        backroom: Object.fromEntries(tuning.packSkus.map((s) => [s.id, 0])),
         shelves: {
             slots: Array.from({ length: tuning.shelfSlots }, () => ({
                 skuId: null,

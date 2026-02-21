@@ -10,4 +10,7 @@ export {
 export { xpToNext } from './progression';
 export { speedTierCost, maxSpeedTier, speedMultiplierForTier } from './upgrades';
 export { getShopTuning, type PackSkuId } from './shop';
-export type { GameState, SimEvent, SimSnapshot, SimSaveV1, SimSaveV2 } from './types';
+export { getPlayerPackDefinitions, getPlayerPackById } from './packs';
+export type { PlayerPackDefinition } from './packs';
+export { SKILLS, type SkillId, unlockedCardTier, isSkillUnlocked } from './skills';
+export type { GameState, SimEvent, SimSnapshot, SimSaveV1, SimSaveV2, SimSaveV3 } from './types';

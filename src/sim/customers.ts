@@ -1,6 +1,7 @@
-import type { GamePhase, SimEvent, CustomersState, Customer, CardTier } from './types';
+import type { CardRarity, CardTier, Customer, CustomersState, GamePhase, SimEvent } from './types';
 import type { SimConfig } from './config';
 import { randFloat01, randIntInclusive, randRange } from './rng';
+import { cardsForTierAndRarity } from './cards/cards';
 
 const NAMES = ['Ari', 'Bea', 'Cato', 'Dax', 'Eli', 'Fae', 'Gus', 'Hana', 'Ivo', 'Juno'] as const;
 
@@ -19,8 +20,47 @@ function spawnIntervalSeconds(phase: GamePhase, config: SimConfig): number {
 }
 
 function chooseCustomerTier(dayNumber: number): CardTier {
-    // MVP: tier 1 customers for a while, then slowly introduce tier 2
-    return dayNumber >= 3 ? 2 : 1;
+    const safeDay = Number.isFinite(dayNumber) ? dayNumber : 1;
+    // Simple ramp: slowly introduce higher tiers as days pass.
+    // Day 1-2: T1, day 3-4: up to T2, ... clamps at T9.
+    const t = 1 + Math.floor((Math.max(1, safeDay) - 1) / 2);
+    return Math.max(1, Math.min(9, t)) as CardTier;
+}
+
+function chooseRarity(seed: number): { rarity: CardRarity; seed: number } {
+    // Weighted rarity distribution for NPC decks.
+    // common 60%, uncommon 25%, rare 10%, epic 4%, legendary 1%
+    const { value: r01, seed: s1 } = randFloat01(seed);
+    const r = r01 * 100;
+    if (r < 60) return { rarity: 'common', seed: s1 };
+    if (r < 85) return { rarity: 'uncommon', seed: s1 };
+    if (r < 95) return { rarity: 'rare', seed: s1 };
+    if (r < 99) return { rarity: 'epic', seed: s1 };
+    return { rarity: 'legendary', seed: s1 };
+}
+
+function buildCustomerDeck(tier: CardTier, seed: number): { deckCardIds: string[]; seed: number } {
+    let s = seed;
+    const deck: string[] = [];
+
+    for (let i = 0; i < 10; i += 1) {
+        const roll = chooseRarity(s);
+        s = roll.seed;
+
+        const preferred = cardsForTierAndRarity(tier, roll.rarity);
+        const common = cardsForTierAndRarity(tier, 'common');
+        const fallbackCommonT1 = cardsForTierAndRarity(1 as CardTier, 'common');
+        const pool =
+            preferred.length > 0 ? preferred : common.length > 0 ? common : fallbackCommonT1;
+
+        // If somehow no cards are available (should never happen), fall back to a known starter id.
+        const safeMax = Math.max(0, pool.length - 1);
+        const { value: idx, seed: s2 } = randIntInclusive(s, 0, safeMax);
+        s = s2;
+        deck.push(pool[idx]?.id ?? 't1_c01');
+    }
+
+    return { deckCardIds: deck, seed: s };
 }
 
 function spawnOne(
@@ -50,13 +90,17 @@ function spawnOne(
     s = s3;
 
     const id = String(state.nextId);
+    const tier = chooseCustomerTier(dayNumber);
+    const { deckCardIds, seed: sDeck } = buildCustomerDeck(tier, s);
+    s = sDeck;
     const customer: Customer = {
         id,
         name: NAMES[nameIndex],
-        tier: chooseCustomerTier(dayNumber),
+        tier,
         intent,
         status,
         timeToDecisionSeconds: browseSeconds,
+        deckCardIds,
     };
 
     events.push({ type: 'customerSpawned', customerId: id });
@@ -90,7 +134,11 @@ export function tickCustomers(
     const events: SimEvent[] = [];
 
     // Spawn loop (dt is clamped, so usually spawns at most 1)
-    let nextSpawnInSeconds = state.nextSpawnInSeconds - dtSimSeconds;
+    const baseSpawn = Number.isFinite(state.nextSpawnInSeconds)
+        ? state.nextSpawnInSeconds
+        : spawnIntervalSeconds(phase, config);
+    const dt = Number.isFinite(dtSimSeconds) ? dtSimSeconds : 0;
+    let nextSpawnInSeconds = baseSpawn - dt;
     let customers = state.customers;
     let nextId = state.nextId;
 
@@ -114,8 +162,7 @@ export function tickCustomers(
     for (const c of customers) {
         if (c.status === 'waitingBattle') {
             const remaining =
-                (c.challengeExpiresInSeconds ?? config.customer.challengeTimeoutSeconds) -
-                dtSimSeconds;
+                (c.challengeExpiresInSeconds ?? config.customer.challengeTimeoutSeconds) - dt;
             if (remaining > 0) {
                 nextCustomers.push({ ...c, challengeExpiresInSeconds: remaining });
             } else {
@@ -126,7 +173,7 @@ export function tickCustomers(
         }
 
         if (c.status === 'browsing') {
-            const t = c.timeToDecisionSeconds - dtSimSeconds;
+            const t = c.timeToDecisionSeconds - dt;
             if (t > 0) {
                 nextCustomers.push({ ...c, timeToDecisionSeconds: t });
                 continue;
